@@ -1,5 +1,5 @@
 #Author: Gerding, Kilian
-#Date: 18.11.2023
+#Date: 19.11.2023
 
 # Contents
 # Chapter 0: Set-up and Data Import
@@ -39,7 +39,10 @@ packages <- c("ggplot2",
               "forecast",
               "data.table",
               "Metrics",
-              "VAR.etp"
+              "VAR.etp",
+              "ggplot2",
+              "gridExtra"
+              
 )
 
 # eliminating unnecessary loading time by only installing packages not installed yet
@@ -51,13 +54,17 @@ lapply(packages, function(x) if (!(x %in% installed.packages())) {
 libraries(packages)
 
 # modify path as needed, where the Swiss and US data reside
-path <- 
+path <- "yourpath"
 setwd(path)
 
 # Step 2: Read in data and data cleaning
 
 # import data hpi, gdp, cpi, rate
-df <- read.csv("swiss_quarterly_all.csv", header = TRUE, sep = ",", stringsAsFactors = FALSE)
+
+# "swiss_quarterly_all.csv"
+# "us_data_all.csv"
+
+df <- read.csv("", header = TRUE, sep = ",", stringsAsFactors = FALSE)
 
 # transform date format
 df$Date <- as.Date(df$Date, format = "%Y-%m-%d")
@@ -98,6 +105,8 @@ df$cpi_chg <- df$cpi - stats::lag(df$cpi)
 
 # merge all CH/US data, ordered in the discussed order in the thesis
 
+org_df <- df
+
 ch_data <- merge(df$gdp_lin_cycle_df,
                  df$cpi_chg,
                  df$rate,
@@ -117,12 +126,19 @@ colnames(us_data) <- c("gdp", "cpi", "rate", "hpi")
 # ========== Chapter 1: VAR  ==========
 
 # amend if needed from CH to US Data
-df <- na.omit(ch_data)
+
+# ch_data
+# us_data
+
+df <- na.omit("data")
 
 # split in training, validation and, testing
 
 # t for training subset, set to 0.5, 0.7 and 0.8
-t <- round(0.5*nrow(df))
+
+run <- 0.5 # 0.7 # 0.8
+
+t <- round(run*nrow(df))
 
 # v for validation subset
 v <- round((nrow(df)-t)/2)
@@ -131,11 +147,7 @@ v <- round((nrow(df)-t)/2)
 df_train  <- df[1:t,]
 df_val    <- df[(t+1):(t+v),]
 df_train2 <- df[1:(t+v),]
-df_test   <- df[(t+v+1):(t+2*v),]
-
-time_index_all <- index(ch_data)
-time_index_val <- index(ch_data[1:(t+v),])
-time_index_test <- index(ch_data[1:(t+2*v),])
+df_test   <- df[(t+v+1):(t+2*v),] # for US df_test   <- df[(t+v+1):(t+2*v-1),]
 
 # ADF Test to test for stationary or non-stationary time series
 for (i in 1:ncol(df_train)) {
@@ -167,13 +179,14 @@ pacf(df_train$rate, main = "Rate")
 pacf(df_train$gdp, main = "GDP")
 pacf(df_train$hpi, main = "HPI")
 
-# LM test
+# lags
+lags <- 4
 
 # estimate VAR model
-model <- VAR(df_train, p =1, type = "const")
+model <- VAR(df_train, p =lags, type = "const")
 summary(model)
 
-model2 <- VAR(df_train2, p =1, type = "const")
+model2 <- VAR(df_train2, p =lags, type = "const")
 summary(model2)
 
 # check roots
@@ -221,8 +234,6 @@ plot(stabf2)
 # plot residuals, as well as histogram, acf and pacf of residuals and acf
 # and pacf of squared residuals
 
-lags <- 1 # change in accordance to chosen lag number
-
 residuals_cpi <- xts(model$varresult$cpi$residuals, order.by = index(df_train[(lags+1):t-1,]))
 plot(residuals_cpi)
 hist(residuals_cpi)
@@ -264,7 +275,7 @@ ahead <- v
 
 # predict n-ahead
 forecast1 <- predict(model, n.ahead = ahead, ci = 0.90)
-forecast2 <- predict(model2, n.ahead = ahead, ci = 0.90)
+forecast2 <- predict(model2, n.ahead = (ahead-1), ci = 0.90) # for US (ahead-1)
 
 # extract validation forecasts
 f_cpi <- forecast1$fcst$cpi[,1]
@@ -396,7 +407,7 @@ f2 <- rbind(df_train, df_val, f_all2)
 cum_comp <- merge(df, f1, f2)
 
 starting <- as.xts(matrix(c(1,1,1,1,1,1,1,1,1,1,1,1), nrow = 1, ncol = 12),
-                   as.Date("2000-06-01"))
+                   as.Date("")) # US "1978-04-01" / Swiss "2000-06-01"
 
 colnames(starting) <- colnames(cum_comp)
 cum_comp <- rbind(starting, cum_comp)
@@ -436,13 +447,13 @@ v6_fe <- Metrics::rmse(v6$Rate, v6$`Testing Forecast`)
 v7_fe <- Metrics::rmse(v7$GDP, v7$`Testing Forecast`)
 v8_fe <- Metrics::rmse(v8$HPI, v8$TestingForecast)
 
-fe_all <- matrix(c(v1_fe,
+fe_all <- matrix(c(v3_fe,
+                   v1_fe,
                    v2_fe,
-                   v3_fe,
                    v4_fe,
+                   v7_fe,
                    v5_fe,
                    v6_fe,
-                   v7_fe,
                    v8_fe),
                  ncol = 4,
                  nrow = 2,
@@ -475,12 +486,11 @@ sce$hpi <- sce[,4] + sce[,8] + sce[,12]
 sce <- sce[,c(13,14,15,16)]
 
 starting <- as.xts(matrix(c(1,1,1,1), nrow = 1, ncol = 4),
-                   as.Date("2000-06-01"))
+                   as.Date("")) # US "1978-04-01" / Swiss "2000-06-01"
 
 colnames(starting) <- colnames(sce)
 cum_sce <- rbind(starting, sce)
 cum_sce <- cumsum(cum_sce)
-cum_sce50 <- cum_sce
 
 # cumulative squared error plots
 plot(cum_sce[,1], main = "GDP Squared Errors")
@@ -524,23 +534,24 @@ library(tfprobability)
 install_tfprobability(envname = "r-reticulate")
 
 # amend if needed from CH to US data
-df <- na.omit(ch_data)
-tdf <- data.table(df)
+
+# ch_data
+# us_data
+
+ndf <- na.omit("data")
+tdf <- data.table(ndf)
 
 # split df
-t <- round(0.5*nrow(tdf))
+t <- round(run*nrow(tdf))
 v <- round((nrow(tdf)-t)/2)
 tdf_train  <- tdf[1:t,]
 tdf_val    <- tdf[(t+1):(t+v),]
 tdf_train2 <- tdf[1:(t+v),]
-tdf_test   <- tdf[(t+v+1):(t+2*v),]
+tdf_test   <- tdf[(t+v+1):(t+2*v),] # for US df_test   <- df[(t+v+1):(t+2*v-1),]
 
 
 # define object with variable names
 names <- colnames(tdf)
-
-# define the number of lags (identical to the VAR specification)
-lags <- 1
 
 # define the length of the data used for modelling
 n <- nrow(tdf) - lags
@@ -664,6 +675,8 @@ nnvar_list <- lapply(
 
 # Fit the LSTM networks models on the two datasets
 
+set.seed(111)
+
 nnvar_fitted <- lapply(
   1:k,
   function(k) {
@@ -674,6 +687,8 @@ nnvar_fitted <- lapply(
     )
   }
 )
+
+set.seed(111)
 
 nnvar_fitted2 <- lapply(
   1:k,
@@ -697,13 +712,11 @@ fitted_values <- lapply(
     mod <- nnvar_list[[k]]
     fitted <- mod(x_train)
     y_hat <- as.numeric(fitted %>% tfd_mean())
-    sd <- as.numeric(fitted %>% tfd_stddev())
     
     # rescale to the original mean and standard deviation
     y_hat <- (y_hat + scaling_parameters_train$means[[k]]) * scaling_parameters_train$sd[[k]]
-    sd <- (sd + scaling_parameters_train$means[[k]]) * scaling_parameters_train$sd[[k]]
     
-    return(list(y_hat = unlist(y_hat), sd = unlist(sd)))
+    return(list(y_hat = unlist(y_hat)))
   }
 )
 
@@ -715,13 +728,11 @@ fitted_values2 <- lapply(
     mod <- nnvar_list[[k]]
     fitted <- mod(x_train2)
     y_hat2 <- as.numeric(fitted %>% tfd_mean())
-    sd2 <- as.numeric(fitted %>% tfd_stddev())
     
     # rescale to the original mean and standard deviation
     y_hat2 <- (y_hat2 + scaling_parameters_train2$means[[k]]) * scaling_parameters_train2$sd[[k]] 
-    sd2 <- (sd2 + scaling_parameters_train2$means[[k]]) * scaling_parameters_train2$sd[[k]]
     
-    return(list(y_hat2 = unlist(y_hat2), sd2 = unlist(sd2)))
+    return(list(y_hat2 = unlist(y_hat2))) 
   }
 )
 
@@ -789,8 +800,6 @@ counter <- 1
 
 # define base set
 forecast <- data.table::copy(tdf_train[.N,])
-uncertainty <- data.table::copy(tdf_train[.N,])
-uncertainty[] <- 0
 
 # change for loop
 data <- tdf_train
@@ -800,6 +809,8 @@ data[,1] <- (data[,1] + scaling_parameters_train$means[[1]])  *  scaling_paramet
 data[,2] <- (data[,2] + scaling_parameters_train$means[[2]]) *  scaling_parameters_train$sd[[2]]
 data[,3] <- (data[,3] + scaling_parameters_train$means[[3]]) *  scaling_parameters_train$sd[[3]]
 data[,4] <- (data[,4] + scaling_parameters_train$means[[4]]) *  scaling_parameters_train$sd[[4]]
+
+set.seed(111)
 
 while(counter <= ahead) {
   
@@ -827,13 +838,11 @@ while(counter <= ahead) {
       mod <- nnvar_list[[k]]
       fitted <- mod(explanatory)
       y_hat <- as.numeric(fitted %>% tfd_mean())
-      sd <- as.numeric(fitted %>% tfd_stddev())
       
       # rescale to the original mean and standard deviation
       y_hat <- (y_hat + scaling_parameters_train$means[[k]]) * scaling_parameters_train$sd[[k]]
-      sd <- (sd + scaling_parameters_train$means[[k]]) * scaling_parameters_train$sd[[k]]
       
-      return(list(y_hat = unlist(y_hat), sd = unlist(sd)))
+      return(list(y_hat = unlist(y_hat)))
     }
   )
   
@@ -843,26 +852,14 @@ while(counter <= ahead) {
   rownames(y_hat) <- NULL
   colnames(y_hat) <- names
   
-  # transform the fitted values' variance
-  sd <- matrix(sapply(fitted_values, function(i) i$sd), ncol = k)
-  rownames(sd) <- NULL
-  colnames(sd) <- names
-  
   # reformat predictions and std ("uncertainty")
   predictions <- data.table::melt(
     data.table(y_hat),
     measure.vars = names)
-  
-  uc <- data.table::melt(
-    data.table(sd),
-    measure.vars = names)
-  
+
   # update variables for next iteration
   forecast_next_step <- data.table::dcast(predictions, .~variable)[,-1]
   forecast <- rbind(forecast, forecast_next_step)
-  
-  uncertainty_next_step <- data.table::dcast(uc, .~variable)[,-1]
-  uncertainty <- rbind(uncertainty, uncertainty_next_step)
   
   data <- rbind(data, forecast_next_step)
   counter <- counter + 1
@@ -875,8 +872,6 @@ counter <- 1
 
 # define base set
 forecast <- data.table::copy(tdf_train2[.N,])
-uncertainty <- data.table::copy(tdf_train2[.N,])
-uncertainty[] <- 0
 
 # change for loop
 data2 <- tdf_train2
@@ -886,6 +881,8 @@ data2[,1] <- (data2[,1] + scaling_parameters_train2$means[[1]])  *  scaling_para
 data2[,2] <- (data2[,2] + scaling_parameters_train2$means[[2]]) *  scaling_parameters_train2$sd[[2]]
 data2[,3] <- (data2[,3] + scaling_parameters_train2$means[[3]]) *  scaling_parameters_train2$sd[[3]]
 data2[,4] <- (data2[,4] + scaling_parameters_train2$means[[4]]) *  scaling_parameters_train2$sd[[4]]
+
+set.seed(111)
 
 while(counter <= ahead) {
   
@@ -913,42 +910,27 @@ while(counter <= ahead) {
       mod <- nnvar_list[[k]]
       fitted <- mod(explanatory)
       y_hat2 <- as.numeric(fitted %>% tfd_mean())
-      sd2 <- as.numeric(fitted %>% tfd_stddev())
       
       # rescale to the original mean and standard deviation
       y_hat2 <- (y_hat2 + scaling_parameters_train2$means[[k]]) * scaling_parameters_train2$sd[[k]]
-      sd2 <- (sd2 + scaling_parameters_train2$means[[k]]) * scaling_parameters_train2$sd[[k]]
       
-      return(list(y_hat2 = unlist(y_hat2), sd2 = unlist(sd2)))
+      return(list(y_hat2 = unlist(y_hat2)))
     }
   )
-  
   
   # transform the fitted values 
   y_hat2 <- matrix(sapply(fitted_values2, function(i) i$y_hat2), ncol = k)
   rownames(y_hat2) <- NULL
   colnames(y_hat2) <- names
   
-  # transform the fitted values' variance
-  sd2 <- matrix(sapply(fitted_values2, function(i) i$sd2), ncol = k)
-  rownames(sd2) <- NULL
-  colnames(sd2) <- names
-  
   # reformat predictions and std ("uncertainty")
   predictions2 <- data.table::melt(
     data.table(y_hat2),
     measure.vars = names)
   
-  uncertainty2 <- data.table::melt(
-    data.table(sd2),
-    measure.vars = names)
-  
-  # update variabels for next iteration
+  # update variables for next iteration
   forecast_next_step <- data.table::dcast(predictions2, .~variable)[,-1]
   forecast <- rbind(forecast, forecast_next_step)
-  
-  uncertainty_next_step <- data.table::dcast(uncertainty2, .~variable)[,-1]
-  uncertainty <- rbind(uncertainty, uncertainty_next_step)
   
   data2 <- rbind(data2, forecast_next_step)
   counter <- counter + 1
@@ -957,10 +939,10 @@ while(counter <= ahead) {
 
 # evaluate forecasts
 eval_forecast <- xts(data, order.by = index(df_train2))
-eval_forecast2 <- xts(data2, order.by = index(df))
+eval_forecast2 <- xts(data2, order.by = index(ndf)) # for US 50% xts(data2[1:(nrow(data2)-1)], order.by = index(ndf))
 
 val_pred <- eval_forecast[(t+1):(t+v),]
-test_pred <- eval_forecast2[(t+v+1):(nrow(df)),]
+test_pred <- eval_forecast2[(t+v+1):(nrow(ndf)),]
 
 # combine
 nn_pred <- merge(df_train, val_pred, test_pred, df_val, df_test, all = TRUE)
@@ -1012,10 +994,10 @@ lines(copy_nn_pred[,c(16,20)], lwd=0.75, lty = 1, col='black')
 # visual prediction evaluation
 nn_f1 <- rbind(df_train, val_pred)
 nn_f2 <- rbind(df_train, df_val, test_pred)
-nn_cum_comp <- merge(df, nn_f1, nn_f2)
+nn_cum_comp <- merge(ndf, nn_f1, nn_f2)
 
 starting <- as.xts(matrix(c(1,1,1,1,1,1,1,1,1,1,1,1), nrow = 1, ncol = 12),
-                   as.Date("2000-06-01"))
+                   as.Date("")) # US "1978-04-01"  / Swiss "2000-06-01"
 
 colnames(starting) <- colnames(nn_cum_comp)
 nn_cum_comp <- rbind(starting, nn_cum_comp)
@@ -1100,7 +1082,7 @@ nn_sce$hpi <- nn_sce[,4] + nn_sce[,8] + nn_sce[,12]
 nn_sce <- nn_sce[,c(9,10,11,12)]
 
 starting <- as.xts(matrix(c(1,1,1,1), nrow = 1, ncol = 4),
-                   as.Date("2000-06-01"))
+                   as.Date("")) # US "1978-04-01" / Swiss "2000-06-01"
 
 colnames(starting) <- colnames(nn_sce)
 cum_nn_sce <- rbind(starting, nn_sce)
@@ -1123,18 +1105,57 @@ plot(cum_nn_sce[,4], main = "HPI Squared Errors")
 lines(cum_nn_sce[(t+1):(t+v),4], lwd=2, lty = 1, col='red')
 lines(cum_nn_sce[(t+v):nrow(cum_nn_sce),4], lwd=2, lty = 1, col='lightgreen')
 
-ss_all <- merge(cum_sce50, cum_nn_sce50)
-ss_all[4,] <- 1
-ss_all <- ss_all[-(1:3),]
+ss_all <- cbind(cum_sce, cum_nn_sce)
+
+# for US
+ss_all <- ss_all[-(2:3),]
+
+# for Swiss
+ss_all <- ss_all[-(1:2),]
+
+# rename
 colnames(ss_all) <- c("GDP VAR", "CPI VAR", "Rate VAR", "HPI VAR",
                       "GDP NNVAR", "CPI NNVAR", "Rate NNVAR", "HPI NNVAR"
 )
-plot(ss_all[,c(1,5)], main = "GDP Squared Errors", legend.loc ="topleft")
-plot(ss_all[,c(2,6)], main = "CPI Squared Errors", legend.loc ="topleft")
-plot(ss_all[,c(3,7)], main = "Rate Squared Errors", legend.loc ="topleft")
-plot(ss_all[,c(4,8)], main = "HPI Squared Errors", legend.loc ="topleft")
+
+#for Swiss - needs to be adjusted 50%, 70%, 80%
+events <- xts(c("Training", "Validation", "Testing"), 
+              as.Date(c("2000-06-01", "X", "X")))
+
+#for US  - needs to be adjusted 50%, 70%, 80%
+events <- xts(c("Training", "Validation", "Testing"), 
+              as.Date(c("1978-04-01", "X", "X")))
 
 
+plot(ss_all[,c(1,5)], main = "GDP Squared Errors", legend.loc ="topleft", grid.col = NA)
+addEventLines(events, srt=90, pos=1)
+
+plot(ss_all[,c(2,6)], main = "CPI Squared Errors", legend.loc ="topleft", grid.col = NA)
+addEventLines(events, srt=90, pos=1)
+
+plot(ss_all[,c(3,7)], main = "Rate Squared Errors", legend.loc ="topleft", grid.col = NA)
+addEventLines(events, srt=90, pos=1)
+
+plot(ss_all[,c(4,8)], main = "HPI Squared Errors", legend.loc ="topleft", grid.col = NA)
+addEventLines(events, srt=90, pos=1)
+
+# level forecast plots
+cs_var1 <- rbind(org_df$hpi_lin_cycle[1], f1$hpi)
+lvl_var1 <- exp(org_df$linear_hpi + cumsum(cs_var1))
+
+cs_var2 <- rbind(org_df$hpi_lin_cycle[1], f2$hpi)
+lvl_var2 <- exp(org_df$linear_hpi + cumsum(cs_var2))
+
+cs_nnvar1 <- rbind(org_df$hpi_lin_cycle[1], nn_f1$hpi)
+lvl_nnvar1 <- exp(org_df$linear_hpi + cumsum(cs_nnvar1))
+
+cs_nnvar2 <- rbind(org_df$hpi_lin_cycle[1], nn_f2$hpi)
+lvl_nnvar2 <- exp(org_df$linear_hpi + cumsum(cs_nnvar2))
+
+level <- merge(org_df$hpi, lvl_var1, lvl_var2, lvl_nnvar1, lvl_nnvar2)
+colnames(level) <- c("HPI", "VAR Validation", "VAR Testing", "NN-VAR Validation", "NN-VAR Testing")
+
+plot(level, main = "Level Forecasts HPI", legend.loc ="topleft", grid.col = NA)
 
 # ========== Chapter 3: Impulse Response ==========
 
@@ -1143,88 +1164,228 @@ gdp_shock <- vars::irf(model, impulse = "gdp", response = c("cpi"),
                        n.ahead = 20, boot = TRUE, ortho = TRUE, runs = 1000, ci = 0.95)
 plot(gdp_shock)
 
-cpi_shock <- vars::irf(model2, impulse = "cpi", response = c("hpi"),
-                       n.ahead = 20, boot = TRUE, ortho = TRUE, runs = 1000, ci = 0.95)
-plot(cpi_shock)
 
 rate_shock <- vars::irf(model2, impulse = "rate", response = c("hpi"),
                         n.ahead = 20, boot = TRUE, ortho = TRUE, runs = 1000, ci = 0.95)
 plot(rate_shock)
 
 # NNVAR IRF
-
-# reshape
-X_val_nnIRF <- x_val
-X_val_nnIRF[,,1] <- scaling_parameters_train$means[[1]]
-X_val_nnIRF[,,2] <- scaling_parameters_train$means[[2]]
-X_val_nnIRF[,,3] <- scaling_parameters_train$means[[3]]
-X_val_nnIRF[,,4] <- scaling_parameters_train$means[[4]]
-#X_val_nnIRF[,,5] <- means_train[,2]
-#X_val_nnIRF[,,6] <- means_train[,3]
-#X_val_nnIRF[,,7] <- means_train[,1] 
-#X_val_nnIRF[,,8] <- means_train[,2]
-#X_val_nnIRF[,,9] <- means_train[,3]
-#X_val_nnIRF[,,10] <- means_train[,1] 
-#X_val_nnIRF[,,11] <- means_train[,2]
-#X_val_nnIRF[,,12] <- means_train[,3]
-
-#X_test_nnIRF <- keras::array_reshape(X_test,c(nrow(X_test),1,ncol(X_test)))
-
-# shock interest rate
-X_val_nnIRF[1,1,1] <- scaling_parameters_train$means[[1]] + 10
-#X_val_nnIRF[2,1,6] <- means_train[,2] + 1
-
-
-# create lists for impulse responses
-tval_nnIRF_1 <- list()
-tval_nnIRF_2 <- list()
-tval_nnIRF_3 <- list()
-tval_nnIRF_4 <- list()
-
-runs <- 100
-
-for (i in seq(1,runs,1)) {
   
-  tval_nnIRF_1[[i]] <- nnvar_fitted[[1]]$model %>% predict(X_val_nnIRF)
-  tval_nnIRF_2[[i]] <- nnvar_fitted[[2]]$model %>% predict(X_val_nnIRF)
-  tval_nnIRF_3[[i]] <- nnvar_fitted[[3]]$model %>% predict(X_val_nnIRF)
-  tval_nnIRF_4[[i]] <- nnvar_fitted[[4]]$model %>% predict(X_val_nnIRF)
+# GDP SHOCK of 1 std deviation 
+
+# define steps ahead and counter
+  ahead <- v
+  counter <- 1
   
-  #test_pred[[1]] <- fitted_nnvar2[[1]]$model %>% predict(X_test)
-  #test_pred[[2]] <- fitted_nnvar2[[2]]$model %>% predict(X_test)
-  #test_pred[[3]] <- fitted_nnvar2[[3]]$model %>% predict(X_test)
+# define base set 
+  forecast <- data.table()
+  
+# change for loop
+  data <- tdf_train
+  
+# rescale
+  data[,1] <- (data[,1] + scaling_parameters_train$means[[1]])  *  scaling_parameters_train$sd[[1]]
+  data[,2] <- (data[,2] + scaling_parameters_train$means[[2]]) *  scaling_parameters_train$sd[[2]]
+  data[,3] <- (data[,3] + scaling_parameters_train$means[[3]]) *  scaling_parameters_train$sd[[3]]
+  data[,4] <- (data[,4] + scaling_parameters_train$means[[4]]) *  scaling_parameters_train$sd[[4]]
+  
+
+while(counter <= ahead) {
+    
+    # change data to explanatory data set
+    explanatory = as.matrix(
+      data[
+        (.N-(lags-1)):.N, # take last p rows
+        sapply(
+          0:(lags-1),
+          function(lag) {
+            data.table::shift(.SD, lag)
+          }
+        )
+      ][.N,]
+    )
+    
+    # GDP SHOCK
+    explanatory <- array_reshape(explanatory, dim = c(1,1,ncol(explanatory)))
+    
+    if (counter<=1) {
+      explanatory[1,1,1] <- explanatory[1,1,1]  +  scaling_parameters_train$sd[[1]]
+      }
+    
+    # predict with fitted values per step
+    fitted_values <- lapply(
+      1:length(nnvar_list),
+      
+      function(k) {
+        
+        mod <- nnvar_list[[k]]
+        fitted <- mod(explanatory)
+        y_hat <- as.numeric(fitted %>% tfd_mean())
+        
+        # rescale to the original mean and standard deviation
+        y_hat <- (y_hat + scaling_parameters_train$means[[k]]) * scaling_parameters_train$sd[[k]]
+        
+        return(list(y_hat = unlist(y_hat)))
+      }
+    )
+    
+    # transform the fitted values 
+    y_hat <- matrix(sapply(fitted_values, function(i) i$y_hat), ncol = k)
+    rownames(y_hat) <- NULL
+    colnames(y_hat) <- names
+    
+    # reformat predictions and std ("uncertainty")
+    predictions <- data.table::melt(
+      data.table(y_hat),
+      measure.vars = names)
+    
+    # update variables for next iteration
+    forecast_next_step <- data.table::dcast(predictions, .~variable)[,-1]
+    forecast <- rbind(forecast, forecast_next_step)
+    
+    data <- rbind(data, forecast_next_step)
+    counter <- counter + 1
+    
+}
+
+forecast$x <- seq(1,nrow(forecast),1)
+forecast$gdp <- forecast$gdp - last(forecast$gdp)
+forecast$cpi <- forecast$cpi - last(forecast$cpi)
+forecast$rate <- forecast$rate - last(forecast$rate)
+forecast$hpi <- forecast$hpi - last(forecast$hpi)
+
+# plot 
+
+nnirf_cpi <- ggplot(forecast, aes(x, cpi)) +
+  geom_line() +
+  labs(y= "CPI", x = "") +
+  labs(title = "") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+nnirf_rate <-ggplot(forecast, aes(x, rate)) +
+  geom_line() +
+  labs(y= "Rate", x = "") +
+  labs(title = "") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+nnirf_hpi <- ggplot(forecast, aes(x, hpi)) +
+  geom_line() +
+  labs(y= "HPI", x = "") +
+  labs(title = "") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+grid.arrange(nnirf_cpi, nnirf_rate, nnirf_hpi, nrow = 1)
+
+# RATE SHOCK of 1 std deviation 
+
+# define steps ahead and counter
+ahead <- v
+counter <- 1
+
+# define base set 
+forecast <- data.table()
+
+# change for loop
+data <- tdf_train
+
+# rescale
+data[,1] <- (data[,1] + scaling_parameters_train$means[[1]])  *  scaling_parameters_train$sd[[1]]
+data[,2] <- (data[,2] + scaling_parameters_train$means[[2]]) *  scaling_parameters_train$sd[[2]]
+data[,3] <- (data[,3] + scaling_parameters_train$means[[3]]) *  scaling_parameters_train$sd[[3]]
+data[,4] <- (data[,4] + scaling_parameters_train$means[[4]]) *  scaling_parameters_train$sd[[4]]
+
+
+while(counter <= ahead) {
+  
+  # change data to explanatory data set
+  explanatory = as.matrix(
+    data[
+      (.N-(lags-1)):.N, # take last p rows
+      sapply(
+        0:(lags-1),
+        function(lag) {
+          data.table::shift(.SD, lag)
+        }
+      )
+    ][.N,]
+  )
+  
+  explanatory <- array_reshape(explanatory, dim = c(1,1,ncol(explanatory)))
+  
+  if (counter<=1) {
+    explanatory[1,1,3] <- explanatory[1,1,3]  +  scaling_parameters_train$sd[[3]]
+  }
+  
+  # predict with fitted values per step
+  fitted_values <- lapply(
+    1:length(nnvar_list),
+    
+    function(k) {
+      
+      mod <- nnvar_list[[k]]
+      fitted <- mod(explanatory)
+      y_hat <- as.numeric(fitted %>% tfd_mean())
+      
+      # rescale to the original mean and standard deviation
+      y_hat <- (y_hat + scaling_parameters_train$means[[k]]) * scaling_parameters_train$sd[[k]]
+      
+      return(list(y_hat = unlist(y_hat)))
+    }
+  )
+  
+  # transform the fitted values 
+  y_hat <- matrix(sapply(fitted_values, function(i) i$y_hat), ncol = k)
+  rownames(y_hat) <- NULL
+  colnames(y_hat) <- names
+  
+  # reformat predictions and std ("uncertainty")
+  predictions <- data.table::melt(
+    data.table(y_hat),
+    measure.vars = names)
+  
+  # update variables for next iteration
+  forecast_next_step <- data.table::dcast(predictions, .~variable)[,-1]
+  forecast <- rbind(forecast, forecast_next_step)
+  
+  data <- rbind(data, forecast_next_step)
+  counter <- counter + 1
   
 }
 
-tval_nnIRF_1 <- data.frame(t(sapply(tval_nnIRF_1,c)))
-tval_nnIRF_2 <- data.frame(t(sapply(tval_nnIRF_2,c)))
-tval_nnIRF_3 <- data.frame(t(sapply(tval_nnIRF_3,c)))
-tval_nnIRF_4 <- data.frame(t(sapply(tval_nnIRF_4,c)))
+forecast$x <- seq(1,nrow(forecast),1)
+forecast$gdp <- forecast$gdp - last(forecast$gdp)
+forecast$cpi <- forecast$cpi - last(forecast$cpi)
+forecast$rate <- forecast$rate - last(forecast$rate)
+forecast$hpi <- forecast$hpi - last(forecast$hpi)
 
-tval_nnIRF_1m <- data.frame(colMeans(tval_nnIRF_1)) #* sds_train[[1]] - means_train[[1]]
-tval_nnIRF_2m <- data.frame(colMeans(tval_nnIRF_2)) #* sds_train[[2]] - means_train[[2]]
-tval_nnIRF_3m <- data.frame(colMeans(tval_nnIRF_3)) #* sds_train[[3]] - means_train[[3]]
-tval_nnIRF_4m <- data.frame(colMeans(tval_nnIRF_4)) #* sds_train[[3]] - means_train[[3]]
+# plot 
 
-tval_nnIRF_1m["5%"] <- sapply(tval_nnIRF_1, quantile, p= 0.05) #* sds_train[[1]] - means_train[[1]]
-tval_nnIRF_2m["5%"] <- sapply(tval_nnIRF_2, quantile, p= 0.05) #* sds_train[[2]] - means_train[[2]]
-tval_nnIRF_3m["5%"] <- sapply(tval_nnIRF_3, quantile, p= 0.05) #* sds_train[[3]] - means_train[[3]]
-tval_nnIRF_4m["5%"] <- sapply(tval_nnIRF_4, quantile, p= 0.05) #* sds_train[[3]] - means_train[[3]]
 
-tval_nnIRF_1m["95%"] <- sapply(tval_nnIRF_1, quantile, p= 0.95) #* sds_train[[1]] - means_train[[1]]
-tval_nnIRF_2m["95%"] <- sapply(tval_nnIRF_2, quantile, p= 0.95) #* sds_train[[2]] - means_train[[2]]
-tval_nnIRF_3m["95%"] <- sapply(tval_nnIRF_3, quantile, p= 0.95) #* sds_train[[3]] - means_train[[3]]
-tval_nnIRF_4m["95%"] <- sapply(tval_nnIRF_4, quantile, p= 0.95) #* sds_train[[3]] - means_train[[3]]
+nnirf_gdp <- ggplot(forecast, aes(x, gdp)) +
+  geom_line() +
+  labs(y= "GDP", x = "") +
+  labs(title = "") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
 
-tval_nnIRF_1m <- xts(tval_nnIRF_1m, order.by = index(df_val[(2:nrow(df_val)),]))
-tval_nnIRF_2m <- xts(tval_nnIRF_2m, order.by = index(df_val[(2:nrow(df_val)),]))
-tval_nnIRF_3m <- xts(tval_nnIRF_3m, order.by = index(df_val[(2:nrow(df_val)),]))
-tval_nnIRF_4m <- xts(tval_nnIRF_4m, order.by = index(df_val[(2:nrow(df_val)),]))
+nirf_cpi <- ggplot(forecast, aes(x, cpi)) +
+  geom_line() +
+  labs(y= "CPI", x = "") +
+  labs(title = "") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
 
-plot(tval_nnIRF_1m)
-plot(tval_nnIRF_2m)
-plot(tval_nnIRF_3m)
-plot(tval_nnIRF_4m)
+nnirf_hpi <- ggplot(forecast, aes(x, hpi)) +
+  geom_line() +
+  labs(y= "HPI", x = "") +
+  labs(title = "") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+grid.arrange(nnirf_gdp, nnirf_cpi, nnirf_hpi, nrow = 1)
 
 ###########
 ### END ###
